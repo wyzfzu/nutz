@@ -6,6 +6,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+
+import org.nutz.lang.Lang;
+import org.nutz.lang.util.ClassMeta;
+import org.nutz.lang.util.ClassMetaReader;
+
 import java.util.Set;
 
 public class ActionInfo {
@@ -39,14 +44,24 @@ public class ActionInfo {
     private Class<?> moduleType;
 
     private Method method;
+    
+    private boolean pathTop;
+    
+    private ClassMeta meta;
+
+    private String[] paramNames;
+    
+    private Integer lineNumber;
+    
+    private Object obj;//
 
     public ActionInfo() {
         httpMethods = new HashSet<String>();
     }
 
-    public ActionInfo mergeWith(ActionInfo parent) {
+    public ActionInfo mergeWith(ActionInfo parent, boolean fromMain) {
         // 组合路径 - 与父路径做一个笛卡尔积
-        if (null != paths && null != parent.paths && parent.paths.length > 0) {
+        if (!pathTop && null != paths && null != parent.paths && parent.paths.length > 0) {
             List<String> myPaths = new ArrayList<String>(paths.length * parent.paths.length);
             for (int i = 0; i < parent.paths.length; i++) {
                 String pp = parent.paths[i];
@@ -55,6 +70,10 @@ public class ActionInfo {
                 }
             }
             paths = myPaths.toArray(new String[myPaths.size()]);
+        }
+        // 出现下面这种情况,是因为需要继承MainModule的@At
+        else if (paths == null && parent.paths != null && parent.paths.length > 0) {
+            paths = parent.paths;
         }
 
         if (null == pathMap) {
@@ -75,9 +94,21 @@ public class ActionInfo {
         okView = null == okView ? parent.okView : okView;
         failView = null == failView ? parent.failView : failView;
         filterInfos = null == filterInfos ? parent.filterInfos : filterInfos;
-        injectName = null == injectName ? parent.injectName : injectName;
-        moduleType = null == moduleType ? parent.moduleType : moduleType;
+        if (!fromMain) {
+            injectName = null == injectName ? parent.injectName : injectName;
+            moduleType = null == moduleType ? parent.moduleType : moduleType;
+        }
         chainName = null == chainName ? parent.chainName : chainName;
+        
+        // 继承元数据信息
+        if (this.method != null && this.meta == null && parent.meta != null && parent.meta.type != null){
+            if (parent.meta.type.equals(this.method.getDeclaringClass().getName())) {
+                String key = ClassMetaReader.getKey(this.method);
+                this.paramNames = Lang.collection2array(parent.meta.paramNames.get(key), String.class);
+                this.lineNumber = parent.meta.methodLines.get(key);
+            }
+        }
+        
         return this;
     }
 
@@ -209,4 +240,35 @@ public class ActionInfo {
         this.method = method;
     }
 
+    public void setPathTop(boolean pathTop) {
+        this.pathTop = pathTop;
+    }
+
+    public boolean isPathTop() {
+        return pathTop;
+    }
+
+    public ClassMeta getMeta() {
+        return meta;
+    }
+
+    public void setMeta(ClassMeta meta) {
+        this.meta = meta;
+    }
+
+    public String[] getParamNames() {
+        return paramNames;
+    }
+
+    public Integer getLineNumber() {
+        return lineNumber;
+    }
+    
+    public void setModuleObj(Object obj) {
+		this.obj = obj;
+	}
+    
+    public Object getModuleObj() {
+    	return this.obj;
+    }
 }

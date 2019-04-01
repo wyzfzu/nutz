@@ -4,6 +4,7 @@ require "sinatra"
 require "sinatra/namespace"
 require "sinatra/reloader" if development?
 require "sinatra/json"
+require "json"
 
 get '/' do
   "Hello, here is nutz test server."
@@ -73,6 +74,10 @@ namespace '/nutztest' do
     get("/servlet_obj") do
       context_path
     end
+
+    delete("/httpmethods") do
+      "DELETE"
+    end
   end
 
   namespace "/aop" do
@@ -88,13 +93,13 @@ namespace '/nutztest' do
   namespace '/views' do
     %w{for for2 for3}.each do |item|
       get "/#{item}" do
-          context_path
+        context_path
       end
     end
 
     %w{jsp jsp2 jsp3 jsp4}.each do |item|
       get "/#{item}" do
-          "null"
+        "null"
       end
     end
 
@@ -115,6 +120,21 @@ namespace '/nutztest' do
       get "/#{item}" do
         context_path
       end
+    end
+
+    get "/resp/to/:type" do
+      case params["type"]
+      when "1"
+        "hi"
+      when "2"
+        json :name => "wendal"
+      else
+        context_path
+      end
+    end
+
+    get "/resp2" do
+      "hi"
     end
   end
 
@@ -152,11 +172,27 @@ namespace '/nutztest' do
     post "/err_ctx" do
       request.body.string.empty? ? "true" : (request.body.string == "{}").to_s
     end
+
+    post "/sqldate" do
+      params[:checkDate]
+    end
+
+    get "/param_without_param" do
+      params[:uids].split(",").to_json if params[:uids]
+    end
+
+    post "/issue1069" do
+      params[:showAdd] || ""
+    end
   end
 
   # UploadTest.java
   post '/upload/image' do
     "image&3"
+  end
+  
+  get '/mapping/issue1212/sayhi' do
+  	"hi"
   end
 
 end

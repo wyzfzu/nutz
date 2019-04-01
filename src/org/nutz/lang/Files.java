@@ -8,6 +8,7 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.io.Reader;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
@@ -21,6 +22,8 @@ import java.util.zip.ZipFile;
 import org.nutz.lang.util.Callback;
 import org.nutz.lang.util.ClassTools;
 import org.nutz.lang.util.Disks;
+import org.nutz.lang.util.Regex;
+import org.nutz.log.Logs;
 
 /**
  * 文件操作的帮助函数
@@ -278,11 +281,7 @@ public class Files {
     }
 
     /**
-     * 获取文件后缀名，不包括 '.'，如 'abc.gif','，则返回 'gif'
-     * 
-     * @param f
-     *            文件
-     * @return 文件后缀名
+     * @see #getSuffixName(String)
      */
     public static String getSuffixName(File f) {
         if (null == f)
@@ -308,6 +307,32 @@ public class Files {
     }
 
     /**
+     * @see #getSuffix(String)
+     */
+    public static String getSuffix(File f) {
+        if (null == f)
+            return null;
+        return getSuffix(f.getAbsolutePath());
+    }
+
+    /**
+     * 获取文件后缀名，包括 '.'，如 'abc.gif','，则返回 '.gif'
+     * 
+     * @param path
+     *            文件路径
+     * @return 文件后缀
+     */
+    public static String getSuffix(String path) {
+        if (null == path)
+            return null;
+        int p0 = path.lastIndexOf('.');
+        int p1 = path.lastIndexOf('/');
+        if (-1 == p0 || p0 < p1)
+            return "";
+        return path.substring(p0);
+    }
+
+    /**
      * 根据正则式，从压缩文件中获取文件
      * 
      * @param zip
@@ -321,7 +346,7 @@ public class Files {
         Enumeration<? extends ZipEntry> en = zip.entries();
         while (en.hasMoreElements()) {
             ZipEntry ze = en.nextElement();
-            if (null == regex || ze.getName().matches(regex))
+            if (null == regex || Regex.match(regex, ze.getName()))
                 list.add(ze);
         }
         return list.toArray(new ZipEntry[list.size()]);
@@ -393,10 +418,14 @@ public class Files {
         if (null == thePath)
             thePath = Disks.normalize(path);
         File f = new File(thePath);
-        if (!f.exists())
-            Files.makeDir(f);
+        if (!f.exists()) {
+            boolean flag = Files.makeDir(f);
+            if (!flag) {
+                Logs.get().warnf("create filepool dir(%s) fail!!", f.getPath());
+            }
+        }
         if (!f.isDirectory())
-            throw Lang.makeThrow("'%s' should be a directory!", path);
+            throw Lang.makeThrow("'%s' should be a directory or don't have permission to create it!", path);
         return f;
     }
 
@@ -410,8 +439,11 @@ public class Files {
     public static File createDirIfNoExists(File d) {
         if (null == d)
             return d;
-        if (!d.exists())
-            Files.makeDir(d);
+        if (!d.exists()) {
+            if (!Files.makeDir(d)) {
+                throw Lang.makeThrow("fail to create '%s', permission deny?", d.getAbsolutePath());
+            }
+        }
         if (!d.isDirectory())
             throw Lang.makeThrow("'%s' should be a directory!", d);
         return d;
@@ -470,14 +502,12 @@ public class Files {
         /**
          * 仅文件
          */
-        FILE,
-        /**
-         * 仅目录
-         */
-        DIR,
-        /**
-         * 文件和目录
-         */
+        FILE, /**
+               * 仅目录
+               */
+        DIR, /**
+              * 文件和目录
+              */
         ALL
     }
 
@@ -808,13 +838,15 @@ public class Files {
         if (!dir.exists())
             return false;
         File[] fs = dir.listFiles();
-        for (File f : fs) {
-            if (f.isFile())
-                Files.deleteFile(f);
-            else if (f.isDirectory())
-                Files.deleteDir(f);
+        if (fs != null) {
+            for (File f : fs) {
+                if (f.isFile())
+                    Files.deleteFile(f);
+                else if (f.isDirectory())
+                    Files.deleteDir(f);
+            }
         }
-        return false;
+        return true;
     }
 
     /**
@@ -835,7 +867,7 @@ public class Files {
      *            目标文件
      * @param count
      *            要 copy 的字节数，0 表示什么都不 copy， -1 表示 copy 全部数据
-     * @return
+     * @return 是否成功
      * @throws IOException
      */
     public static boolean copyFile(File src, File target, long count) throws IOException {
@@ -1048,6 +1080,8 @@ public class Files {
      */
     public static void cleanAllFolderInSubFolderes(File dir, String name) throws IOException {
         File[] files = dir.listFiles();
+        if (files == null)
+        	return;
         for (File d : files) {
             if (d.isDirectory())
                 if (d.getName().equalsIgnoreCase(name))
@@ -1064,7 +1098,8 @@ public class Files {
      *            文件1
      * @param f2
      *            文件2
-     * @return <ul>
+     * @return
+     *         <ul>
      *         <li>true: 两个文件内容完全相等
      *         <li>false: 任何一个文件对象为 null，不存在 或内容不相等
      *         </ul>
@@ -1177,7 +1212,8 @@ public class Files {
      *            文件对象
      * @param f2
      *            文件对象
-     * @return <ul>
+     * @return
+     *         <ul>
      *         <li>true: 两个文件内容完全相等
      *         <li>false: 任何一个文件对象为 null，不存在 或内容不相等
      *         </ul>
@@ -1242,6 +1278,43 @@ public class Files {
         }
         finally {
             Streams.safeClose(br);
+        }
+    }
+    
+    public static int readRange(File f, int pos, byte[] buf, int at, int len) {
+        try {
+            if (f == null || !f.exists())
+                return 0;
+            long fsize = f.length();
+            if (pos > fsize)
+                return 0;
+            len = Math.min(len, buf.length - at);
+            if (pos + len > fsize) {
+                len = (int)(fsize - pos);
+            }
+            RandomAccessFile raf = new RandomAccessFile(f, "r");
+            raf.seek(pos);
+            raf.readFully(buf, at, len);
+            raf.close();
+            return len;
+        }
+        catch (IOException e) {
+            return -1;
+        }
+    }
+    
+    public static int writeRange(File f, int pos, byte[] buf, int at, int len) {
+        try {
+            if (f == null || !f.exists())
+                return 0;
+            RandomAccessFile raf = new RandomAccessFile(f, "rw");
+            raf.seek(pos);
+            raf.write(buf, at, len);
+            raf.close();
+            return len;
+        }
+        catch (IOException e) {
+            return -1;
         }
     }
 }

@@ -49,7 +49,7 @@ public class DerbyJdbcExpert extends MysqlJdbcExpert {
             sql.setSourceSql(sql.getSourceSql() + String.format(" OFFSET %d ROWS FETCH NEXT %d ROW ONLY", pager.getOffset(), pager.getPageSize()));
     }
 
-    protected String evalFieldType(MappingField mf) {
+    public String evalFieldType(MappingField mf) {
         if (mf.getCustomDbType() != null)
             return mf.getCustomDbType();
         switch (mf.getColumnType()) {
@@ -78,7 +78,9 @@ public class DerbyJdbcExpert extends MysqlJdbcExpert {
         StringBuilder sb = new StringBuilder("CREATE TABLE " + en.getTableName() + "(");
         // 创建字段
         for (MappingField mf : en.getMappingFields()) {
-            sb.append('\n').append(mf.getColumnName());
+            if (mf.isReadonly())
+                continue;
+            sb.append('\n').append(mf.getColumnNameInSql());
             sb.append(' ').append(evalFieldType(mf));
             // 非主键的 @Name，应该加入唯一性约束
             if (mf.isName() && en.getPkType() != PkType.NAME) {
@@ -109,7 +111,7 @@ public class DerbyJdbcExpert extends MysqlJdbcExpert {
                     }
                 } else {
                     if (mf.hasDefaultValue())
-                        sb.append(" DEFAULT '").append(getDefaultValue(mf)).append("'");
+                        addDefaultValue(sb, mf);
                 }
             }
 
@@ -125,7 +127,7 @@ public class DerbyJdbcExpert extends MysqlJdbcExpert {
             sb.append('\n');
             sb.append("PRIMARY KEY (");
             for (MappingField pk : pks) {
-                sb.append(pk.getColumnName()).append(',');
+                sb.append(pk.getColumnNameInSql()).append(',');
             }
             sb.setCharAt(sb.length() - 1, ')');
             sb.append("\n ");
